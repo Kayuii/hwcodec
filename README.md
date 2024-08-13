@@ -77,3 +77,9 @@ Based on the information above, there are several optimizations and changes made
 
   https://developer.nvidia.com/video-encode-and-decode-gpu-support-matrix-new?ncid=em-prod-816193
 
+## vcpkg install ffmpeg
+
+* Windows
+```
+./vcpkg install ffmpeg[core,avcodec,avformat,nvcodec,amf,qsv]:x64-windows-static
+```

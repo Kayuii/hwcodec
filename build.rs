@@ -193,6 +193,15 @@ mod ffmpeg {
             .map(|lib| println!("cargo:rustc-link-lib={}", lib))
             .count();
 
+        // error LNK2001: unresolved external symbol IID_ICodecAPI
+        // error LNK2001: unresolved external symbol IID_IMFMediaEventGenerator
+        // error LNK2001: unresolved external symbol IID_IMFTransform
+        #[cfg(target_os = "windows")]
+        [
+            "Mfuuid", "Strmiids"
+        ]
+        .map(|lib| println!("cargo:rustc-link-lib={}", lib));
+
         if target_os == "macos" || target_os == "ios" {
             println!("cargo:rustc-link-lib=framework=CoreFoundation");
             println!("cargo:rustc-link-lib=framework=CoreVideo");
