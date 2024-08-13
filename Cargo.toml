@@ -1,12 +1,12 @@
 [package]
 name = "hwcodec"
-version = "0.4.10"
+version = "0.7.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = []
+default = ["vram"]
 vram = []
 
 [dependencies]
@@ -20,9 +20,15 @@ cc = "1.0"
 bindgen = "0.59"
 
 [dev-dependencies]
-env_logger = "0.10"
+env_logger = "0.11.5"
 rand = "0.8"
 
 [target.'cfg(target_os="windows")'.dev-dependencies]
 capture = { path = "dev/capture" }
 render = { path = "dev/render" }
+tool = { path = "dev/tool" }
+
+[[example]]
+src = "examples/pipeline_vram.rs"
+name = "pipeline_vram"
+features = ["vram"]

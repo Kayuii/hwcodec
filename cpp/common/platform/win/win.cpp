@@ -13,6 +13,9 @@
 
 #include "win.h"
 
+#define LOG_MODULE "WIN"
+#include "log.h"
+
 #define NUMVERTICES 6
 
 typedef struct _VERTEX {
@@ -59,6 +62,7 @@ bool NativeDevice::InitFromLuid(int64_t luid) {
     }
   }
   if (!adapter1_) {
+    LOG_ERROR("Failed to find adapter1_");
     return false;
   }
   HRB(adapter1_.As(&adapter_));
@@ -73,17 +77,13 @@ bool NativeDevice::InitFromLuid(int64_t luid) {
   D3D_FEATURE_LEVEL featureLevel;
   D3D_DRIVER_TYPE d3dDriverType =
       adapter1_ ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE;
-  hr = D3D11CreateDevice(adapter1_.Get(), d3dDriverType, nullptr,
-                         createDeviceFlags, featureLevels, numFeatureLevels,
-                         D3D11_SDK_VERSION, device_.ReleaseAndGetAddressOf(),
-                         &featureLevel, context_.ReleaseAndGetAddressOf());
-
-  if (FAILED(hr)) {
-    return false;
-  }
+  HRB(D3D11CreateDevice(adapter1_.Get(), d3dDriverType, nullptr,
+                        createDeviceFlags, featureLevels, numFeatureLevels,
+                        D3D11_SDK_VERSION, device_.ReleaseAndGetAddressOf(),
+                        &featureLevel, context_.ReleaseAndGetAddressOf()));
 
   if (featureLevel != D3D_FEATURE_LEVEL_11_0) {
-    std::cerr << "Direct3D Feature Level 11 unsupported." << std::endl;
+    LOG_ERROR("Direct3D Feature Level 11 unsupported.");
     return false;
   }
   return true;
@@ -106,7 +106,7 @@ bool NativeDevice::SetMultithreadProtected() {
   HRB(context_.As(&hmt));
   if (!hmt->SetMultithreadProtected(TRUE)) {
     if (!hmt->GetMultithreadProtected()) {
-      std::cerr << "Failed to SetMultithreadProtected" << std::endl;
+      LOG_ERROR("Failed to SetMultithreadProtected");
       return false;
     }
   }
@@ -185,7 +185,6 @@ bool NativeDevice::nv12_to_bgra_set_srv(ID3D11Texture2D *nv12Texture, int width,
   texDesc.Width = width;
   texDesc.Height = height;
 
-  nv12SrvTexture_.Reset();
   HRB(device_->CreateTexture2D(&texDesc, nullptr,
                                nv12SrvTexture_.ReleaseAndGetAddressOf()));
 
@@ -399,7 +398,8 @@ bool NativeDevice::Query() {
   return bResult == TRUE;
 }
 
-bool NativeDevice::Process(ID3D11Texture2D *in, ID3D11Texture2D *out,
+bool NativeDevice::Process(ID3D11Texture2D *in, ID3D11Texture2D *out, int width,
+                           int height,
                            D3D11_VIDEO_PROCESSOR_CONTENT_DESC content_desc,
                            DXGI_COLOR_SPACE_TYPE colorSpace_in,
                            DXGI_COLOR_SPACE_TYPE colorSpace_out,
@@ -440,10 +440,12 @@ bool NativeDevice::Process(ID3D11Texture2D *in, ID3D11Texture2D *out,
                                                       colorSpace_out);
 
   RECT rect = {0};
-  rect.right = content_desc.InputWidth;
-  rect.bottom = content_desc.InputHeight;
+  rect.right = width;
+  rect.bottom = height;
   video_context_->VideoProcessorSetStreamSourceRect(video_processor_.Get(), 0,
                                                     true, &rect);
+  video_context1_->VideoProcessorSetStreamDestRect(video_processor_.Get(), 0,
+                                                   true, &rect);
 
   D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC InputViewDesc;
   ZeroMemory(&InputViewDesc, sizeof(InputViewDesc));
@@ -479,10 +481,29 @@ bool NativeDevice::BgraToNv12(ID3D11Texture2D *bgraTexture,
                               ID3D11Texture2D *nv12Texture, int width,
                               int height, DXGI_COLOR_SPACE_TYPE colorSpace_in,
                               DXGI_COLOR_SPACE_TYPE colorSpace_out) {
+  D3D11_TEXTURE2D_DESC bgraDesc = {0};
+  D3D11_TEXTURE2D_DESC nv12Desc = {0};
+  bgraTexture->GetDesc(&bgraDesc);
+  nv12Texture->GetDesc(&nv12Desc);
+  if (bgraDesc.Width < width || bgraDesc.Height < height) {
+    LOG_ERROR("bgraTexture size is smaller than width and height, " +
+              std::to_string(bgraDesc.Width) + "x" +
+              std::to_string(bgraDesc.Height) + " < " + std::to_string(width) +
+              "x" + std::to_string(height));
+    return false;
+  }
+  if (nv12Desc.Width < width || nv12Desc.Height < height) {
+    LOG_ERROR("nv12Texture size is smaller than width and height," +
+              std::to_string(nv12Desc.Width) + "x" +
+              std::to_string(nv12Desc.Height) + " < " + std::to_string(width) +
+              "x" + std::to_string(height));
+    return false;
+  }
+
   D3D11_VIDEO_PROCESSOR_CONTENT_DESC contentDesc;
   ZeroMemory(&contentDesc, sizeof(contentDesc));
   contentDesc.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
-  contentDesc.InputFrameRate.Numerator = 60;
+  contentDesc.InputFrameRate.Numerator = 30;
   contentDesc.InputFrameRate.Denominator = 1;
   // TODO: width height always same with desc.Width and desc.Height in test,
   // need test for decide to use which one
@@ -492,11 +513,11 @@ bool NativeDevice::BgraToNv12(ID3D11Texture2D *bgraTexture,
   contentDesc.InputHeight = height;
   contentDesc.OutputWidth = width;
   contentDesc.OutputHeight = height;
-  contentDesc.OutputFrameRate.Numerator = 60;
+  contentDesc.OutputFrameRate.Numerator = 30;
   contentDesc.OutputFrameRate.Denominator = 1;
 
-  return Process(bgraTexture, nv12Texture, contentDesc, colorSpace_in,
-                 colorSpace_out, 0);
+  return Process(bgraTexture, nv12Texture, width, height, contentDesc,
+                 colorSpace_in, colorSpace_out, 0);
 }
 
 AdapterVendor NativeDevice::GetVendor() {
@@ -680,4 +701,39 @@ int Adapters::GetFirstAdapterIndex(AdapterVendor vendor) {
     }
   }
   return -1;
+}
+
+// https://asawicki.info/news_1773_how_to_programmatically_check_graphics_driver_version
+// https://github.com/citizenfx/fivem/issues/1121
+uint64_t GetHwcodecGpuSignature() {
+  uint64_t signature = 0;
+  ComPtr<IDXGIFactory1> factory1 = nullptr;
+  HRI(CreateDXGIFactory1(IID_IDXGIFactory1,
+                         (void **)factory1.ReleaseAndGetAddressOf()));
+
+  ComPtr<IDXGIAdapter1> tmpAdapter = nullptr;
+  UINT i = 0;
+  while (!FAILED(
+      factory1->EnumAdapters1(i, tmpAdapter.ReleaseAndGetAddressOf()))) {
+    i++;
+    DXGI_ADAPTER_DESC1 desc = {0};
+    if (SUCCEEDED(tmpAdapter->GetDesc1(&desc))) {
+      if (desc.VendorId == ADAPTER_VENDOR_NVIDIA ||
+          desc.VendorId == ADAPTER_VENDOR_AMD ||
+          desc.VendorId == ADAPTER_VENDOR_INTEL) {
+        // hardware
+        signature += desc.VendorId;
+        signature += desc.DeviceId;
+        signature += desc.SubSysId;
+        signature += desc.Revision;
+        // software
+        LARGE_INTEGER umd_version;
+        if SUCCEEDED (tmpAdapter->CheckInterfaceSupport(__uuidof(IDXGIDevice),
+                                                        &umd_version)) {
+          signature += umd_version.QuadPart;
+        }
+      }
+    }
+  }
+  return signature;
 }

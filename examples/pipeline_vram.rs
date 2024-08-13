@@ -59,7 +59,7 @@ fn main() {
             }
             dup_sum += start.elapsed();
             let start = Instant::now();
-            let frame = enc.encode(texture).unwrap();
+            let frame = enc.encode(texture, 5).unwrap();
             enc_sum += start.elapsed();
             for f in frame {
                 file.write_all(&mut f.data).unwrap();

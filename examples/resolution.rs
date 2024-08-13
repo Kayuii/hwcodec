@@ -1,6 +1,6 @@
 use env_logger::{init_from_env, Env, DEFAULT_FILTER_ENV};
 use hwcodec::{
-    common::MAX_GOP,
+    common::{Quality::*, RateControl::*, MAX_GOP},
     ffmpeg::{
         AVHWDeviceType::{self, *},
         AVPixelFormat::*,
@@ -8,8 +8,6 @@ use hwcodec::{
     ffmpeg_ram::{
         decode::{DecodeContext, Decoder},
         encode::{EncodeContext, Encoder},
-        Quality::*,
-        RateControl::*,
     },
 };
 use std::{
@@ -83,11 +81,12 @@ fn decode_encode(
         },
         align: 0,
         kbs: 1_000,
-        timebase: [1, 30],
+        fps: 30,
         gop: MAX_GOP as _,
         quality: Quality_Default,
         rc: RC_DEFAULT,
         thread_count: 4,
+        q: -1,
     };
     let mut video_encoder = Encoder::new(enc_ctx).unwrap();
     let mut encode_file =
@@ -120,7 +119,7 @@ fn decode_encode(
             encode_buf.append(d);
         }
         yuv_file.write_all(&encode_buf).unwrap();
-        let frames = video_encoder.encode(&encode_buf).unwrap();
+        let frames = video_encoder.encode(&encode_buf, 0).unwrap();
         assert_eq!(frames.len(), 1);
         for f in frames {
             encode_file.write_all(&f.data).unwrap();

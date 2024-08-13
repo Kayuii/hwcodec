@@ -41,6 +41,18 @@ Based on the information above, there are several optimizations and changes made
 * remove hevc_vaapi because of possible poor quality
 * amf: not tested, https://github.com/GPUOpen-LibrariesAndSDKs/AMF/issues/378
 
+### MacOS
+
+| FFmpeg ram encode   | FFmpeg ram decode   |
+| ------------------  | ------------------  |
+| h265 only           | Y                   |
+
+### Android
+
+| FFmpeg ram encode   |
+| ------------------  |
+| Y                   |
+
 ## System requirements
 
 * intel
@@ -48,6 +60,8 @@ Based on the information above, there are several optimizations and changes made
   Windows Intel(r) graphics driver since 27.20.100.8935 version. 
 
   [Hardware Platforms Supported by the Intel(R) Media SDK GPU Runtime](https://www.intel.com/content/www/us/en/docs/onevpl/upgrade-from-msdk/2023-1/onevpl-hardware-support-details.html#HARDWARE-PLATFORMS-SUPPORTED-BY-THE-INTEL-R-MEDIA-SDK-GPU-RUNTIME)
+
+  https://www.intel.com/content/www/us/en/docs/onevpl/developer-reference-media-intel-hardware/1-1/overview.html
 
 * AMD
 

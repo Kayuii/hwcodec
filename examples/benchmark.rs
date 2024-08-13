@@ -1,12 +1,11 @@
 use env_logger::{init_from_env, Env, DEFAULT_FILTER_ENV};
 use hwcodec::{
+    common::{Quality::*, RateControl::*},
     ffmpeg::AVPixelFormat,
     ffmpeg_ram::{
         decode::{DecodeContext, Decoder},
         encode::{EncodeContext, Encoder},
         CodecInfo, CodecInfos,
-        Quality::*,
-        RateControl::*,
     },
 };
 use rand::random;
@@ -24,11 +23,12 @@ fn main() {
         pixfmt: AVPixelFormat::AV_PIX_FMT_YUV420P,
         align: 0,
         kbs: 5000,
-        timebase: [1, 30],
+        fps: 30,
         gop: 60,
         quality: Quality_Default,
         rc: RC_DEFAULT,
         thread_count: 4,
+        q: -1,
     };
     let yuv_count = 100;
     println!("benchmark");
@@ -64,7 +64,9 @@ fn test_encoder(info: CodecInfo, ctx: EncodeContext, yuvs: &Vec<Vec<u8>>, best: 
     let mut encoder = Encoder::new(ctx.clone()).unwrap();
     let start = Instant::now();
     for yuv in yuvs {
-        let _ = encoder.encode(yuv).unwrap();
+        let _ = encoder
+            .encode(yuv, start.elapsed().as_millis() as _)
+            .unwrap();
     }
     println!(
         "{}{}: {:?}",
@@ -129,7 +131,7 @@ fn prepare_h26x(
             ctx.name = info.name;
             let mut encoder = Encoder::new(ctx).unwrap();
             for yuv in yuvs {
-                let h26x = encoder.encode(yuv).unwrap();
+                let h26x = encoder.encode(yuv, 0).unwrap();
                 for frame in h26x {
                     h26xs.push(frame.data.to_vec());
                 }

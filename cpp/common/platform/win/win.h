@@ -15,15 +15,6 @@ using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
 
-#define IF_FAILED_RETURN(X)                                                    \
-  if (FAILED(hr = (X))) {                                                      \
-    return hr;                                                                 \
-  }
-
-#define IF_FAILED_THROW(X)                                                     \
-  if (FAILED(hr = (X))) {                                                      \
-    throw hr;                                                                  \
-  }
 #define SAFE_RELEASE(p)                                                        \
   {                                                                            \
     if ((p)) {                                                                 \
@@ -33,22 +24,6 @@ using namespace DirectX;
   }
 #define LUID(desc)                                                             \
   (((int64_t)desc.AdapterLuid.HighPart << 32) | desc.AdapterLuid.LowPart)
-#define HRB(f) MS_CHECK(f, return false;)
-#define HRI(f) MS_CHECK(f, return -1;)
-#define HRP(f) MS_CHECK(f, return nullptr;)
-#define MS_CHECK(f, ...)                                                       \
-  do {                                                                         \
-    HRESULT __ms_hr__ = (f);                                                   \
-    if (FAILED(__ms_hr__)) {                                                   \
-      std::clog                                                                \
-          << #f "  ERROR@" << __LINE__ << __FUNCTION__ << ": (" << std::hex    \
-          << __ms_hr__ << std::dec << ") "                                     \
-          << std::error_code(__ms_hr__, std::system_category()).message()      \
-          << std::endl                                                         \
-          << std::flush;                                                       \
-      __VA_ARGS__                                                              \
-    }                                                                          \
-  } while (false)
 
 class NativeDevice {
 public:
@@ -61,7 +36,7 @@ public:
   void BeginQuery();
   void EndQuery();
   bool Query();
-  bool Process(ID3D11Texture2D *in, ID3D11Texture2D *out,
+  bool Process(ID3D11Texture2D *in, ID3D11Texture2D *out, int width, int height,
                D3D11_VIDEO_PROCESSOR_CONTENT_DESC content_desc,
                DXGI_COLOR_SPACE_TYPE colorSpace_in,
                DXGI_COLOR_SPACE_TYPE colorSpace_out, int arraySlice);
@@ -149,5 +124,7 @@ public:
   ComPtr<IDXGIFactory1> factory1_ = nullptr;
   std::vector<std::unique_ptr<Adapter>> adapters_;
 };
+
+extern "C" uint64_t GetHwcodecGpuSignature();
 
 #endif

@@ -1,13 +1,12 @@
 use crate::{
     common::{
         DataFormat::{self, *},
-        Driver,
+        Quality, RateControl,
     },
     ffmpeg::{av_log_get_level, av_log_set_level, AVPixelFormat, AV_LOG_ERROR, AV_LOG_PANIC},
     ffmpeg_ram::{
         ffmpeg_linesize_offset_length, ffmpeg_ram_encode, ffmpeg_ram_free_encoder,
-        ffmpeg_ram_new_encoder, ffmpeg_ram_set_bitrate, CodecInfo, Quality, RateControl,
-        AV_NUM_DATA_POINTERS,
+        ffmpeg_ram_new_encoder, ffmpeg_ram_set_bitrate, CodecInfo, AV_NUM_DATA_POINTERS,
     },
 };
 use log::{error, trace};
@@ -22,6 +21,8 @@ use std::{
 };
 
 use super::Priority;
+#[cfg(any(windows, target_os = "linux"))]
+use crate::common::Driver;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EncodeContext {
@@ -31,11 +32,12 @@ pub struct EncodeContext {
     pub height: i32,
     pub pixfmt: AVPixelFormat,
     pub align: i32,
-    pub kbs: i32,
-    pub timebase: [i32; 2],
+    pub fps: i32,
     pub gop: i32,
-    pub quality: Quality,
     pub rc: RateControl,
+    pub quality: Quality,
+    pub kbs: i32,
+    pub q: i32,
     pub thread_count: i32,
 }
 
@@ -58,11 +60,13 @@ pub struct Encoder {
     pub linesize: Vec<i32>,
     pub offset: Vec<i32>,
     pub length: i32,
-    start: Instant,
 }
 
 impl Encoder {
     pub fn new(ctx: EncodeContext) -> Result<Self, ()> {
+        if ctx.width % 2 == 1 || ctx.height % 2 == 1 {
+            return Err(());
+        }
         unsafe {
             let mut linesize = Vec::<i32>::new();
             linesize.resize(AV_NUM_DATA_POINTERS as _, 0);
@@ -82,12 +86,12 @@ impl Encoder {
                 ctx.height,
                 ctx.pixfmt as c_int,
                 ctx.align,
-                ctx.kbs as _,
-                ctx.timebase[0],
-                ctx.timebase[1],
+                ctx.fps,
                 ctx.gop,
-                ctx.quality as _,
                 ctx.rc as _,
+                ctx.quality as _,
+                ctx.kbs,
+                ctx.q,
                 ctx.thread_count,
                 gpu,
                 linesize.as_mut_ptr(),
@@ -107,12 +111,11 @@ impl Encoder {
                 linesize,
                 offset,
                 length: length[0],
-                start: Instant::now(),
             })
         }
     }
 
-    pub fn encode(&mut self, data: &[u8]) -> Result<&mut Vec<EncodeFrame>, i32> {
+    pub fn encode(&mut self, data: &[u8], ms: i64) -> Result<&mut Vec<EncodeFrame>, i32> {
         unsafe {
             (&mut *self.frames).clear();
             let result = ffmpeg_ram_encode(
@@ -120,7 +123,7 @@ impl Encoder {
                 (*data).as_ptr(),
                 data.len() as _,
                 self.frames as *const _ as *const c_void,
-                self.start.elapsed().as_millis() as _,
+                ms,
             );
             if result != 0 {
                 if av_log_get_level() >= AV_LOG_ERROR as _ {
@@ -181,7 +184,7 @@ impl Encoder {
     }
 
     fn available_encoders_(ctx: EncodeContext, _sdk: Option<String>) -> Vec<CodecInfo> {
-        if !(cfg!(windows) || cfg!(target_os = "linux")) {
+        if !(cfg!(windows) || cfg!(target_os = "linux") || cfg!(target_os = "macos")) {
             return vec![];
         }
 
@@ -190,90 +193,115 @@ impl Encoder {
             log_level = av_log_get_level();
             av_log_set_level(AV_LOG_PANIC as _);
         };
-        let contains = |_driver: Driver, _format: DataFormat| {
-            #[cfg(all(windows, feature = "vram"))]
-            {
-                if let Some(_sdk) = _sdk.as_ref() {
-                    if !_sdk.is_empty() {
-                        if let Ok(available) = crate::vram::Available::deserialize(_sdk.as_str()) {
-                            return available.contains(true, _driver, _format);
+        let mut codecs: Vec<CodecInfo> = vec![];
+        #[cfg(any(windows, target_os = "linux"))]
+        {
+            let contains = |_driver: Driver, _format: DataFormat| {
+                #[cfg(all(windows, feature = "vram"))]
+                {
+                    if let Some(_sdk) = _sdk.as_ref() {
+                        if !_sdk.is_empty() {
+                            if let Ok(available) =
+                                crate::vram::Available::deserialize(_sdk.as_str())
+                            {
+                                return available.contains(true, _driver, _format);
+                            }
                         }
                     }
                 }
-            }
-            true
-        };
+                true
+            };
+            let (_nv, amf, _intel) = crate::common::supported_gpu(true);
 
-        let (_nv, amf, _intel) = crate::common::supported_gpu(true);
-        let mut codecs = vec![];
-        #[cfg(windows)]
-        if _intel && contains(Driver::MFX, H264) {
-            codecs.push(CodecInfo {
-                name: "h264_qsv".to_owned(),
-                format: H264,
-                priority: Priority::Best as _,
-                ..Default::default()
-            });
+            #[cfg(windows)]
+            if _intel && contains(Driver::MFX, H264) {
+                codecs.push(CodecInfo {
+                    name: "h264_qsv".to_owned(),
+                    format: H264,
+                    priority: Priority::Best as _,
+                    ..Default::default()
+                });
+            }
+            #[cfg(windows)]
+            if _intel && contains(Driver::MFX, H265) {
+                codecs.push(CodecInfo {
+                    name: "hevc_qsv".to_owned(),
+                    format: H265,
+                    priority: Priority::Best as _,
+                    ..Default::default()
+                });
+            }
+            if _nv && contains(Driver::NV, H264) {
+                codecs.push(CodecInfo {
+                    name: "h264_nvenc".to_owned(),
+                    format: H264,
+                    priority: Priority::Best as _,
+                    ..Default::default()
+                });
+            }
+            if _nv && contains(Driver::NV, H265) {
+                codecs.push(CodecInfo {
+                    name: "hevc_nvenc".to_owned(),
+                    format: H265,
+                    priority: Priority::Best as _,
+                    ..Default::default()
+                });
+            }
+            if amf && contains(Driver::AMF, H264) {
+                codecs.push(CodecInfo {
+                    name: "h264_amf".to_owned(),
+                    format: H264,
+                    priority: Priority::Best as _,
+                    ..Default::default()
+                });
+            }
+            if amf {
+                // sdk not use h265
+                codecs.push(CodecInfo {
+                    name: "hevc_amf".to_owned(),
+                    format: H265,
+                    priority: Priority::Best as _,
+                    ..Default::default()
+                });
+            }
+            #[cfg(target_os = "linux")]
+            {
+                codecs.push(CodecInfo {
+                    name: "h264_vaapi".to_owned(),
+                    format: H264,
+                    priority: Priority::Good as _,
+                    ..Default::default()
+                });
+                // remove because poor quality on one of my computer
+                // codecs.push(CodecInfo {
+                //     name: "hevc_vaapi".to_owned(),
+                //     format: H265,
+                //     priority: Priority::Good as _,
+                //     ..Default::default()
+                // });
+            }
         }
-        #[cfg(windows)]
-        if _intel && contains(Driver::MFX, H265) {
-            codecs.push(CodecInfo {
-                name: "hevc_qsv".to_owned(),
-                format: H265,
-                priority: Priority::Best as _,
-                ..Default::default()
-            });
-        }
-        #[cfg(any(windows, target_os = "linux"))]
-        if _nv && contains(Driver::NV, H264) {
-            codecs.push(CodecInfo {
-                name: "h264_nvenc".to_owned(),
-                format: H264,
-                priority: Priority::Best as _,
-                ..Default::default()
-            });
-        }
-        #[cfg(any(windows, target_os = "linux"))]
-        if _nv && contains(Driver::NV, H265) {
-            codecs.push(CodecInfo {
-                name: "hevc_nvenc".to_owned(),
-                format: H265,
-                priority: Priority::Best as _,
-                ..Default::default()
-            });
-        }
-        if amf && contains(Driver::AMF, H264) {
-            codecs.push(CodecInfo {
-                name: "h264_amf".to_owned(),
-                format: H264,
-                priority: Priority::Best as _,
-                ..Default::default()
-            });
-        }
-        if amf {
-            // sdk not use h265
-            codecs.push(CodecInfo {
-                name: "hevc_amf".to_owned(),
-                format: H265,
-                priority: Priority::Best as _,
-                ..Default::default()
-            });
-        }
-        #[cfg(target_os = "linux")]
+
+        #[cfg(target_os = "macos")]
         {
-            codecs.push(CodecInfo {
-                name: "h264_vaapi".to_owned(),
-                format: H264,
-                priority: Priority::Good as _,
-                ..Default::default()
-            });
-            // remove because poor quality on one of my computer
-            // codecs.push(CodecInfo {
-            //     name: "hevc_vaapi".to_owned(),
-            //     format: H265,
-            //     priority: Priority::Good as _,
-            //     ..Default::default()
-            // });
+            let (_h264, h265, _, _) = crate::common::get_video_toolbox_codec_support();
+            // h264 encode failed too often, not AV_CODEC_CAP_HARDWARE
+            // if h264 {
+            //     codecs.push(CodecInfo {
+            //         name: "h264_videotoolbox".to_owned(),
+            //         format: H264,
+            //         priority: Priority::Best as _,
+            //         ..Default::default()
+            //     });
+            // }
+            if h265 {
+                codecs.push(CodecInfo {
+                    name: "hevc_videotoolbox".to_owned(),
+                    format: H265,
+                    priority: Priority::Best as _,
+                    ..Default::default()
+                });
+            }
         }
 
         // qsv doesn't support yuv420p
@@ -312,7 +340,7 @@ impl Encoder {
                     if let Ok(mut encoder) = Encoder::new(c) {
                         log::debug!("{} new {:?}", codec.name, start.elapsed());
                         let start = Instant::now();
-                        if let Ok(_) = encoder.encode(&yuv) {
+                        if let Ok(_) = encoder.encode(&yuv, 0) {
                             log::debug!("{} encode {:?}", codec.name, start.elapsed());
                             infos.lock().unwrap().push(codec);
                         } else {

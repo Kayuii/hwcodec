@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define MAX_GOP 0xFFFF
+#define MAX_GOP 0x7FFFFFFF // i32 max
 
 enum AdapterVendor {
   ADAPTER_VENDOR_AMD = 0x1002,
@@ -32,6 +32,15 @@ enum API {
 
 struct AdapterDesc {
   int64_t luid;
+};
+
+enum Quality { Quality_Default, Quality_High, Quality_Medium, Quality_Low };
+
+enum RateControl {
+  RC_DEFAULT,
+  RC_CBR,
+  RC_VBR,
+  RC_CQ,
 };
 
 #endif // COMMON_H
