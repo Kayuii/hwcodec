@@ -22,3 +22,4 @@ dev/vs/ShaderCompileTool/x64
 bmp
 texture
 .DS_Store
+/deps
