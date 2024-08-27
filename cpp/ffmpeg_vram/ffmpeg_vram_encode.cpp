@@ -136,6 +136,9 @@ public:
       return false;
     }
     // util::set_quality(c_->priv_data, encoder_->name_, Quality_Default);
+    // util::set_rate_control(c_, name_, rc_, q_);
+    // util::set_gpu(c_->priv_data, name_, gpu_);
+    // util::set_level(c_->priv_data, encoder_->name_);
     util::set_rate_control(c_, encoder_->name_, RC_CBR, -1);
 
     hw_device_ctx_ = av_hwdevice_ctx_alloc(encoder_->device_type_);

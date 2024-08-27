@@ -208,6 +208,7 @@ mod ffmpeg {
             println!("cargo:rustc-link-lib=framework=CoreMedia");
             println!("cargo:rustc-link-lib=framework=VideoToolbox");
             println!("cargo:rustc-link-lib=framework=AVFoundation");
+            println!("cargo:rustc-link-lib=framework=AudioToolbox");
         }
     }
 

@@ -27,8 +27,3 @@ rand = "0.8"
 capture = { path = "dev/capture" }
 render = { path = "dev/render" }
 tool = { path = "dev/tool" }
-
-[[example]]
-src = "examples/pipeline_vram.rs"
-name = "pipeline_vram"
-features = ["vram"]
