@@ -143,7 +143,11 @@ mod ffmpeg {
             target = target.replace("x64", "x86");
         }
         println!("cargo:info={}", target);
-        path.push("installed");
+        if let Ok(vcpkg_root) = std::env::var("VCPKG_INSTALLED_ROOT") {
+            path = vcpkg_root.into();
+        } else {
+            path.push("installed");
+        }
         path.push(target);
 
         println!(
@@ -176,7 +180,7 @@ mod ffmpeg {
         let dyn_libs: Vec<&str> = if target_os == "windows" {
             ["User32", "bcrypt", "ole32", "advapi32"].to_vec()
         } else if target_os == "linux" {
-            let mut v = ["va", "va-drm", "drm", "va-x11", "vdpau", "X11", "stdc++"].to_vec();
+            let mut v = ["va", "va-drm", "va-x11", "vdpau", "X11", "stdc++"].to_vec();
             if target_arch == "x86_64" {
                 v.push("z");
             }
